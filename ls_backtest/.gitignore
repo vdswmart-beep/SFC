@@ -1,0 +1,7 @@
+# data are never versioned: Bloomberg data are licensed, Yahoo data can be downloaded again
+data/*/*
+!data/*/.gitkeep
+output/
+__pycache__/
+.pytest_cache/
+.venv/
