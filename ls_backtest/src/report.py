@@ -66,11 +66,15 @@ def cost_table(weights: pd.DataFrame, returns: pd.DataFrame, bench_ret: pd.Serie
 def positions_table(weights: pd.DataFrame, score: pd.DataFrame, zscores: dict[str, pd.DataFrame],
                     sectors: pd.Series, date: pd.Timestamp | None = None) -> pd.DataFrame:
     """Positions at `date` (default: the last invested date): side, weight, sector, score and
-    factor z-scores. Output: one row per position, LONGs first, largest weights first."""
+    factor z-scores. Output: one row per position, the LONGs (best score first), then the SHORTs
+    (worst score first)."""
     if date is None:
         date = weights.index[weights.abs().sum(axis=1) > 0][-1]
     held = weights.loc[date][weights.loc[date] != 0]
-    held = pd.concat([held[held > 0].sort_values(ascending=False), held[held < 0].sort_values()])
+    held_score = score.loc[date, held.index]
+    order = pd.concat([held_score[held > 0].sort_values(ascending=False),
+                       held_score[held < 0].sort_values()]).index
+    held = held[order]
     table = pd.DataFrame({"Date": date, "Side": np.where(held > 0, "LONG", "SHORT"),
                           "Weight": held, "Sector": sectors.reindex(held.index),
                           "Score": score.loc[date, held.index]})

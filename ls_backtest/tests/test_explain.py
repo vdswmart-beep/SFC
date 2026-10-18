@@ -1,4 +1,4 @@
-"""Tests of the web app's explanations: pairs rebuilt from the weights, reasons, ranking, moves."""
+"""Tests of the web app's explanations: sector exposure, reasons, ranking, holdings, moves."""
 import numpy as np
 import pandas as pd
 import pytest
@@ -16,19 +16,18 @@ def run() -> dict:
     raw = compute_signals(data["tr"], data["btp"], data["roe"], fund_lag=3)
     z = {k: sector_zscore(v, data["member"], data["sectors"]) for k, v in raw.items()}
     score = composite(z, 3)
-    weights = ls_weights(score, data["sectors"], n_positions=12, min_sector_size=3,
-                         min_stocks_date=20)
+    weights = ls_weights(score, data["sectors"], n_positions=12, max_per_sector=2,
+                         min_sector_size=3, min_stocks_date=20)
     return {"z": z, "score": score, "weights": weights, "sectors": data["sectors"]}
 
 
-def test_pairs_at(run: dict) -> None:
-    """6 pairs inside one sector each, LONG above SHORT, both legs of a pair weigh the same."""
-    w, score, sectors = run["weights"].iloc[-1], run["score"].iloc[-1], run["sectors"]
-    pairs = explain.pairs_at(w, score, sectors)
-    assert len(pairs) == 6 and (pairs["Spread"] > 0).all()
-    assert (sectors[pairs["LONG"]].to_numpy() == sectors[pairs["SHORT"]].to_numpy()).all()
-    assert np.allclose(pairs["Weight"], -w[pairs["SHORT"]].to_numpy())
-    assert np.allclose(pairs["Weight"], pairs["Spread"] / pairs["Spread"].sum())
+def test_sector_exposure(run: dict) -> None:
+    """LONGs add up to +100 % and SHORTs to -100 % over the sectors; net = LONG + SHORT; no
+    sector holds more than 2 of the 6 LONGs."""
+    exposure = explain.sector_exposure(run["weights"].iloc[-1], run["sectors"])
+    assert np.isclose(exposure["LONG"].sum(), 1.0) and np.isclose(exposure["SHORT"].sum(), -1.0)
+    assert np.allclose(exposure["Net"], exposure["LONG"] + exposure["SHORT"])
+    assert exposure["LONG"].max() <= 2 / 6 + 1e-9
 
 
 def test_why() -> None:

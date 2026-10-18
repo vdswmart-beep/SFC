@@ -1,34 +1,26 @@
-"""Portfolio page: the lines held at a month-end and why, the full ranking, the holdings."""
-import altair as alt
+"""Portfolio page: the lines held at a month-end and why, the full ranking, the sector exposure and
+the holdings over time."""
 import pandas as pd
 import streamlit as st
 
 import config
+from app_pages.charts import heatmap, sector_bars
 from app_pages.common import current_run, show, styled
-from model import SMART_BETA, ranking_score
+from model import ranking_score
 from src import explain
 from src.report import positions_table
 
-RED, GRAY, BLUE = "#c8453c", "#d9d8d2", "#2a78d6"  # SHORT, small weight, LONG
 ROW_COLORS = {"LONG": "#e6effb", "SHORT": "#f9e7e5"}
 
 
 def lines_and_why(run: dict, name: str, date: pd.Timestamp) -> None:
-    """The positions held at `date` with their reasons in words, then the pairs behind them."""
+    """The positions held at `date` with their reasons in words, and the raw data behind them."""
     score = ranking_score(name, run["z"], run["score"])
     lines = positions_table(run["strategies"][name], score, run["z"], run["sectors"], date)
     show(styled(explain.with_reasons(lines.drop(columns="Date"))))
     st.caption("Score: the stock's composite score (its signal's z-score for a single-factor "
                "strategy). z: how far the stock is from its sector's average, in standard "
                "deviations. Why: the signals with |z| ≥ 0.5 for its side, then those against it.")
-    if name != SMART_BETA:  # the smart beta holds the best scores, without pairs
-        st.subheader("The pairs behind the lines")
-        pairs = explain.pairs_at(run["long_short"][name].loc[date], score.loc[date],
-                                 run["sectors"])
-        show(styled(pairs))
-        st.caption("Spread: LONG score − SHORT score. Weight: spread / sum of the spreads."
-                   + (" Long-only: the SHORTs are skipped, the LONGs keep their weight."
-                      if run["long_only"] else ""))
     with st.expander("Raw values behind the z-scores"):
         raw = pd.DataFrame({k: v.loc[date, lines.index] for k, v in run["raw"].items()})
         show(raw.style.format("{:.3f}"))
@@ -50,32 +42,33 @@ def full_ranking(run: dict, name: str, date: pd.Timestamp) -> None:
     if sector != "All sectors":
         table = table[table["Sector"] == sector]
     show(styled(table).apply(_highlight, axis=1), height=600)
-    st.caption(f"{len(table)} stocks. Pairs are formed inside a sector with at least "
-               f"{config.MIN_SECTOR_SIZE} scored stocks: the LONG near its top (Rank in "
-               "sector), the SHORT near its bottom; only the "
-               f"{config.N_POSITIONS // 2} widest spreads are kept.")
+    st.caption(f"{len(table)} stocks. LONG: the best scores, SHORT: the worst, at most "
+               f"{config.MAX_PER_SECTOR} per sector and side (Rank in sector shows who the "
+               f"limit kept out), only in sectors with {config.MIN_SECTOR_SIZE}+ scored stocks.")
 
 
-def _heatmap(cells: pd.DataFrame) -> alt.Chart:
-    """One row per stock, sorted by sector, one column per month; blue = LONG, red = SHORT."""
-    cells = cells.assign(Stock=cells["Sector"] + " · " + cells["Ticker"])
-    limit = cells["Weight"].abs().max()
-    # "lab": a straight fade from gray to each color (the default bends through other hues)
-    color = alt.Scale(domain=[-limit, 0, limit], range=[RED, GRAY, BLUE], interpolate="lab")
-    return alt.Chart(cells).mark_rect().encode(
-        x=alt.X("Month:O", title=None),
-        y=alt.Y("Stock:N", sort="ascending", title=None,
-                axis=alt.Axis(labelOverlap=False, labelLimit=320)),
-        color=alt.Color("Weight:Q", scale=color, legend=alt.Legend(format="%", title="Weight")),
-        tooltip=["Month", "Ticker", "Sector", "Side", alt.Tooltip("Weight:Q", format=".1%")],
-    ).properties(height=20 * cells["Stock"].nunique() + 40)
+def sector_exposure(run: dict, name: str, date: pd.Timestamp) -> None:
+    """LONG, SHORT and net weight of each sector at `date`, then the net weights over time."""
+    weights = run["strategies"][name]
+    exposure = explain.sector_exposure(weights.loc[date], run["sectors"])
+    st.altair_chart(sector_bars(exposure))
+    st.caption("Share of the LONGs (+100 % in total) and of the SHORTs (−100 %) in each sector; "
+               "the black tick is the net exposure, LONG + SHORT.")
+    months = st.slider("Months shown, up to the chosen month-end", 6, 120, 36, step=6,
+                       key="sector_months")
+    cells = explain.holdings(weights, run["sectors"], date, months)
+    net = cells.groupby(["Month", "Sector"], as_index=False)["Weight"].sum()
+    st.markdown("**Net exposure by sector over time**")
+    st.altair_chart(heatmap(net, "Sector"))
 
 
 def holdings_over_time(run: dict, name: str, date: pd.Timestamp) -> None:
     """The weights of the months up to `date` as a heatmap, then what changed at `date`."""
     weights = run["strategies"][name]
     months = st.slider("Months shown, up to the chosen month-end", 6, 120, 36, step=6)
-    st.altair_chart(_heatmap(explain.holdings(weights, run["sectors"], date, months)))
+    cells = explain.holdings(weights, run["sectors"], date, months)
+    st.altair_chart(heatmap(cells.assign(Stock=cells["Sector"] + " · " + cells["Ticker"]),
+                            "Stock"))
     entered, left = explain.moves(weights, date)
     turnover = weights.diff().abs().sum(axis=1).loc[date]
     st.markdown(f"**At {date:%Y-%m}**: in {', '.join(entered) or 'none'} · out "
@@ -96,11 +89,13 @@ if not dates:
 date = st.select_slider("Month-end", dates, value=dates[-1], format_func=lambda d: f"{d:%Y-%m}")
 st.caption(f"Decided at the close of {date:%d %B %Y} with the data known then, held during "
            "the following month.")
-tab_lines, tab_ranking, tab_holdings = st.tabs(["Lines held and why", "Full ranking",
-                                                "Holdings over time"])
+tab_lines, tab_ranking, tab_sectors, tab_holdings = st.tabs(
+    ["Lines held and why", "Full ranking", "Sector exposure", "Holdings over time"])
 with tab_lines:
     lines_and_why(run, name, date)
 with tab_ranking:
     full_ranking(run, name, date)
+with tab_sectors:
+    sector_exposure(run, name, date)
 with tab_holdings:
     holdings_over_time(run, name, date)

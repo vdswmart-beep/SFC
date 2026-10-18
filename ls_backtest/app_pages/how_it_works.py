@@ -4,17 +4,17 @@ import streamlit as st
 import config
 from app_pages.common import current_run
 
-PAIRS = config.N_POSITIONS // 2
+HALF = config.N_POSITIONS // 2  # LONGs, and SHORTs
 PIPELINE = """digraph {
   rankdir=LR; bgcolor="transparent"; nodesep=0.25;
   node [shape=box, style="rounded,filled", fillcolor="#eaf2fc", color="#2a78d6",
         fontname="Helvetica", fontsize=13];
   edge [color="#8c8b85"];
   data [label="1 Data\\nsrc/data.py"]; signals [label="2 Signals\\nsrc/signals.py"];
-  scores [label="3 Scores\\nsrc/signals.py"]; pairs [label="4 Pairs\\nsrc/portfolio.py"];
+  scores [label="3 Scores\\nsrc/signals.py"]; select [label="4 LONG / SHORT\\nsrc/portfolio.py"];
   switch [label="5 Switch\\nLONG_ONLY", shape=diamond, fillcolor="#fdeee8", color="#eb6834"];
   backtest [label="6 Backtest\\nsrc/backtest.py"]; results [label="7 Results\\nsrc/report.py"];
-  data -> signals -> scores -> pairs -> switch -> backtest -> results;
+  data -> signals -> scores -> select -> switch -> backtest -> results;
 }"""
 STEPS = [  # (title, where in the code, what happens)
     ("Data", "src/data.py → load_data", """
@@ -36,15 +36,15 @@ Each signal becomes a **z-score inside its sector**, at each month-end, among in
 z = (value − sector mean) / sector standard deviation, capped at ±3. A bank is compared with
 banks only. The **composite score** is the average of a stock's z-scores (each signal weighs
 the same), if it has at least {config.MIN_SIGNALS} of the {len(config.SIGNALS)}."""),
-    ("Pairs", "src/portfolio.py → ls_weights", f"""
-In each sector with at least {config.MIN_SECTOR_SIZE} scored stocks: best (LONG) against worst
-(SHORT), 2nd best against 2nd worst, and so on while the LONG scores above the SHORT. The
-**{PAIRS} pairs with the widest score spread**, all sectors together, are kept: {PAIRS} LONGs and
-{PAIRS} SHORTs. A pair weighs its spread / the sum of the kept spreads, so LONGs total +100 %,
-SHORTs −100 % and every sector nets to 0. Variant `Composite + exclusion` (H1, the main strategy):
-no LONG with a z-score below {config.EXCL_THRESHOLD:+.0f} on any signal, no SHORT with one above
-{-config.EXCL_THRESHOLD:+.0f}. A month with fewer than {config.MIN_STOCKS_DATE} scored stocks is
-not invested."""),
+    ("LONG / SHORT", "src/portfolio.py → ls_weights", f"""
+All scored stocks are ranked by score: the **{HALF} best go LONG, the {HALF} worst go SHORT**,
+with at most {config.MAX_PER_SECTOR} stocks of one sector on each side, so that the book spreads
+over the sectors. A LONG must score above its sector's average, a SHORT below; sectors with fewer
+than {config.MIN_SECTOR_SIZE} scored stocks are left out. Equal weights: each LONG weighs
++100 % / {HALF}, each SHORT −100 % / {HALF}. Variant `Composite + exclusion` (H1, the main
+strategy): no LONG with a z-score below {config.EXCL_THRESHOLD:+.0f} on any signal, no SHORT with
+one above {-config.EXCL_THRESHOLD:+.0f}. A month with fewer than {config.MIN_STOCKS_DATE} scored
+stocks is not invested."""),
     ("The switch", "config.py → LONG_ONLY (or the sidebar toggle); src/portfolio.py → "
      "skip_short_leg", f"""
 - **Long/short** (toggle off): the portfolio holds the index plus the LONG/SHORT pocket. Index

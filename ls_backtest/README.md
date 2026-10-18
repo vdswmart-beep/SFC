@@ -2,9 +2,10 @@
 
 ## 1. Purpose
 Monthly backtest of an **equitized** strategy: full benchmark exposure (index futures) plus a
-self-financing long/short pocket, beta-neutral and sector-neutral, built on four signals (value,
-momentum, quality, low volatility). This is the V1 of the master's thesis *From Smart Beta to
-Active Management*: the simplest correct model, on which hypotheses H1 to H4 are tested.
+self-financing long/short pocket, beta-neutral and spread over the sectors, built on four
+signals (value, momentum, quality, low volatility). This is the V1 of the master's thesis *From
+Smart Beta to Active Management*: the simplest correct model, on which hypotheses H1 to H4 are
+tested.
 Phase 1 uses the EURO STOXX 50 with free Yahoo Finance data; phase 2 the STOXX Europe 600 with
 Bloomberg. Only the data source changes between the two.
 
@@ -71,7 +72,8 @@ gives every step. In short:
 2. Put the refreshed copy in `data/bloomberg/` (ignored by git: the data are licensed).
 3. `python bloomberg_to_csv.py data/bloomberg/SXXP_extraction.xlsx` writes the CSV files next
    to it and prints the checks (months loaded, stocks without prices, stocks without sector).
-4. In `config.py`: `MIN_SECTOR_SIZE = 5`, `MIN_STOCKS_DATE = 50`, `SHOW_HOLDOUT = False`.
+4. In `config.py`: `MIN_SECTOR_SIZE = 5`, `MIN_STOCKS_DATE = 50`, `N_POSITIONS = 60`,
+   `MAX_PER_SECTOR = 6`, `SHOW_HOLDOUT = False`.
 5. `python main.py data/bloomberg`, or choose `data/bloomberg` in the web app.
 
 The universe is every stock that was in the index at any month-end from 2005 to 2025, delisted
@@ -91,7 +93,7 @@ ls_backtest/
 ├── .gitignore               data/ and output/ are never versioned
 ├── .streamlit/config.toml   look and settings of the web app
 ├── config.py                every model parameter, including the LONG_ONLY switch
-├── model.py                 the model in one call: data -> signals -> pairs -> switch -> tables
+├── model.py                 the model in one call: data -> signals -> LONG/SHORT -> tables
 ├── main.py                  command line: runs model.py, prints and writes the outputs
 ├── app.py                   web app: sidebar (data, switch) and navigation between the pages
 ├── fetch_yahoo.py           Yahoo connector -> data/yahoo/*.csv
@@ -102,24 +104,25 @@ ls_backtest/
 │   ├── __init__.py          empty: makes src a package
 │   ├── data.py              reads the CSV files, generates fake data
 │   ├── signals.py           raw signals, sector z-scores, composite score
-│   ├── portfolio.py         LONG/SHORT pairs; the switch (skip_short_leg); smart beta reference
+│   ├── portfolio.py         LONGs and SHORTs (capped per sector); the switch; smart beta
 │   ├── backtest.py          net returns of the pocket (beta-hedged) and of the total portfolio
 │   ├── metrics.py           annualized statistics, Sharpe test, Fama-French alpha
 │   ├── regimes.py           market regimes (trend x volatility)
 │   ├── report.py            result tables
 │   ├── charts.py            growth of 1 and drawdown charts
 │   ├── export.py            writes CSV files, report.xlsx and PNG charts (the only side effects)
-│   └── explain.py           the "why" of the web app: pairs, reasons, ranking, entries and exits
+│   └── explain.py           the "why" of the web app: reasons, ranking, sectors, entries, exits
 ├── app_pages/               one file per page of the web app
 │   ├── __init__.py          empty: makes app_pages a package
 │   ├── common.py            the current run and the look of the tables
+│   ├── charts.py            interactive charts (Altair): lines, heatmaps, sector bars
 │   ├── how_it_works.py      the model as a recipe, with the file and function of each step
 │   ├── code_map.py          where to change what, the role of each file, the code itself
-│   ├── portfolio.py         the lines held and why, the full ranking, the holdings over time
+│   ├── portfolio.py         lines held and why, full ranking, sector exposure, holdings
 │   └── performance.py       key figures, charts and the tables of the Excel report
 ├── tests/
-│   ├── test_sanity.py       neutrality, positions, universe, look-ahead, hedge, switch
-│   ├── test_explain.py      pairs rebuilt from the weights, reasons, ranking, moves
+│   ├── test_sanity.py       weights, sectors, universe, look-ahead, hedge, switch
+│   ├── test_explain.py      sector exposure, reasons, ranking, holdings, moves
 │   └── test_app.py          every page of the web app runs, in both modes
 ├── data/
 │   ├── yahoo/               CSV files from Yahoo (not versioned)
@@ -141,20 +144,24 @@ to its functions as arguments.
    banks, and ratios, percentages and volatilities become comparable.
 4. **Composite score**: equal-weighted mean of the available z-scores (25 % each), only for stocks
    with at least 3 of the 4 signals (`MIN_SIGNALS`).
-5. **LONG/SHORT pairs** (`ls_weights`), every month-end:
-   - the month is invested only with at least `MIN_STOCKS_DATE` scored stocks;
-   - in every sector with at least `MIN_SECTOR_SIZE` scored stocks, stocks are ranked by score
-     and paired: best (LONG) against worst (SHORT), then 2nd best against 2nd worst, and so on,
-     while the LONG still scores above the SHORT;
-   - the `N_POSITIONS / 2` pairs with the widest score spread, all sectors together, are kept
-     (6 pairs for 12 positions);
-   - each pair weighs its spread / sum of the kept spreads: the LONG gets +w, the SHORT -w. LONGs
-     total +100 %, SHORTs -100 %, and every sector nets to 0 because a pair never leaves its
-     sector;
+5. **LONGs and SHORTs** (`ls_weights`), every month-end:
+   - the month is invested only with at least `MIN_STOCKS_DATE` scored stocks; the stocks of a
+     sector with fewer than `MIN_SECTOR_SIZE` scored stocks are left out (unreliable z-scores);
+   - all stocks are ranked by score, all sectors together: the `N_POSITIONS / 2` best go LONG
+     and the `N_POSITIONS / 2` worst go SHORT (10 + 10 for 20 positions), with at most
+     `MAX_PER_SECTOR` stocks of one sector on each side, so that the book spreads over the
+     sectors;
+   - a LONG must score above its sector's average and a SHORT below: never the same stock;
+   - equal weights: each LONG weighs +100 % / 10, each SHORT -100 % / 10. A sector can be net
+     long or net short, by at most `MAX_PER_SECTOR` positions (20 % of the pocket);
    - exclusion variant (H1): no LONG with any factor z below -1 (`EXCL_THRESHOLD`), no SHORT
      with any factor z above +1.
+
+   The first version paired a LONG and a SHORT inside each sector, even when the gap between
+   them was small; ranking all the stocks together keeps the strongest scores, and the cap per
+   sector keeps the diversification.
 6. **The switch** (`LONG_ONLY`, `skip_short_leg`): `False` (default) keeps the long/short
-   pocket on top of the index. `True` skips the SHORT leg of every pair strategy: the same LONGs,
+   pocket on top of the index. `True` skips the SHORT leg of every L/S strategy: the same LONGs,
    which already total 100 %, are held alone, fully invested, without futures or borrow fees; the
    active return is then the portfolio's return minus the index's. The web app's toggle does the
    same without editing `config.py`.
@@ -188,16 +195,17 @@ data) and the **mode** (the long-only toggle, by default `LONG_ONLY`). Four page
 - **Code map**: where to change what, the role of every file and function (read from the
   docstrings, so always up to date), and the code of any file with line numbers.
 - **Portfolio**: for a strategy and a month-end, the lines held with their z-scores and the
-  reasons in words; the pairs behind them (LONG, SHORT, spread, weight); the full ranking of the
-  scored stocks with the held ones highlighted; a heatmap of the holdings over time with the
-  stocks that entered and left.
-- **Performance**: the key figures of the main strategy, growth of 1 and drawdown, and the tables
-  of the Excel report.
+  reasons in words; the full ranking of the scored stocks with the held ones highlighted; the
+  sector exposure (LONG, SHORT and net weight of each sector, and the net over time); a heatmap
+  of the holdings over time with the stocks that entered and left.
+- **Performance**: the key figures of the main strategy, growth of 1 and drawdown, the tables of
+  the Excel report and, under the stress tests, the growth of 1 over each crisis.
 
 The model runs once per data source and mode (a few seconds on Yahoo data, about 20 on the
 fake data, which have 800 stocks like the STOXX Europe 600), then the app reads it from memory.
-A change to the code, to `config.py` or to the data files re-runs it automatically. The app runs
-on your machine only: nothing is sent anywhere.
+A change to the code, to `config.py` or to the data files re-runs it automatically
+(`config.py` is re-read at every run; if a change to the code ever seems ignored, restart the
+app). The app runs on your machine only: nothing is sent anywhere.
 
 ## 8. Evaluation: what each output shows
 | Table / chart | Content | Hypothesis |
@@ -208,7 +216,7 @@ on your machine only: nothing is sent anywhere.
 | Regimes | IR in each regime: Bull/Bear (12-month benchmark return) x high/low vol (12-month vol against its past median), known one month ahead | H4 |
 | Stress tests | cumulative return of the benchmark and active return of each strategy: GFC 2008-09, euro crisis 2011-12, Covid 2020, inflation 2022 | H3, H4 |
 | Costs | IR of the main strategy for transaction costs 0/10/20 bps x borrow fees 0/50/100 bps a year | H3 |
-| Positions | the current lines of the main strategy (12, or 6 in long-only mode): side, weight, sector, score, z-scores | applying the strategy |
+| Positions | the current lines of the main strategy (20, or 10 in long-only mode): side, weight, sector, score, z-scores | applying the strategy |
 | Monthly returns | active return of every strategy, every month | further analysis |
 | cumulative.png, drawdown.png | main strategy vs smart beta vs benchmark, total portfolios | thesis figures |
 
@@ -229,7 +237,9 @@ month's return must give an IR above 10, a signal built on past returns an |IR| 
 ## 10. Known simplifications
 - The hedge uses the pocket's realized beta: it lags when the portfolio changes, the first 12
   months are not hedged, and futures costs and basis are ignored.
-- 12 lines: high tracking error, results driven by few stocks (`N_POSITIONS` raises it).
+- 20 lines on the EURO STOXX 50: results still driven by few stocks (`N_POSITIONS` raises it).
+- Sector bets: a sector can be net long or short by up to 20 % of the pocket, while the scores,
+  built inside each sector, do not forecast sectors (`MAX_PER_SECTOR` limits these bets).
 - A missing return counts as 0 (no delisting return); turnover ignores the drift of weights
   between rebalancings; the borrow fee is the same for every stock.
 - Current GICS sectors applied to the whole history (Communication Services was created in 2018).
@@ -237,7 +247,8 @@ month's return must give an IR above 10, a signal built on past returns an |IR| 
   alternative.
 
 ## 11. How to extend
-- **More positions**: `N_POSITIONS` in `config.py` (even number: 20 = 10 LONG + 10 SHORT).
+- **More positions**: `N_POSITIONS` in `config.py` (even number: 20 = 10 LONG + 10 SHORT), and
+  `MAX_PER_SECTOR` for the number of stocks of one sector on each side.
 - **A signal**: 1 line in `compute_signals` + 1 name in `SIGNALS`; it automatically gets a
   single-factor strategy and enters the composite (give it words in `WORDS`, `src/explain.py`,
   for the web app).

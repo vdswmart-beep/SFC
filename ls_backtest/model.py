@@ -1,4 +1,4 @@
-"""The model in one call: data -> signals -> pairs -> the switch -> backtests -> tables.
+"""The model in one call: data -> signals -> LONG/SHORT -> the switch -> backtests -> tables.
 Reads config.py; used by main.py (command line) and app.py (web app): both show the same results."""
 import pandas as pd
 
@@ -39,7 +39,8 @@ def build_strategies(data: dict) -> tuple[dict, dict, dict, pd.DataFrame]:
     z = {k: sector_zscore(raw[k], data["member"], data["sectors"]) for k in config.SIGNALS}
     score = composite(z, config.MIN_SIGNALS)
     params = dict(sectors=data["sectors"], n_positions=config.N_POSITIONS,
-                  min_sector_size=config.MIN_SECTOR_SIZE, min_stocks_date=config.MIN_STOCKS_DATE)
+                  max_per_sector=config.MAX_PER_SECTOR, min_sector_size=config.MIN_SECTOR_SIZE,
+                  min_stocks_date=config.MIN_STOCKS_DATE)
     strategies = {f"Single {k}": ls_weights(z[k], **params) for k in config.SIGNALS}
     strategies["Composite"] = ls_weights(score, **params)
     strategies["Composite + exclusion"] = ls_weights(score, **params, zscores=z,
@@ -101,18 +102,16 @@ def build_tables(results: dict, strategies: dict, z: dict, score: pd.DataFrame, 
 
 
 def run_model(data: dict, long_only: bool) -> dict:
-    """Runs the whole model on one data set; long_only is the switch. Output: a dict (a "run") with
-    long_short = the pairs' weights, strategies = the weights held after the switch, and more."""
-    long_short, raw, z, score = build_strategies(data)
-    strategies = long_short
+    """Runs the whole model on one data set; long_only is the switch. Output: a dict (a "run"):
+    signals, scores, weights held (strategies), backtests (results), curves and tables."""
+    strategies, raw, z, score = build_strategies(data)
     if long_only:  # the switch: same LONGs, the SHORT leg is skipped (the smart beta has none)
-        strategies = {name: skip_short_leg(w) for name, w in long_short.items()}
+        strategies = {name: skip_short_leg(w) for name, w in strategies.items()}
     results = run_all(strategies, data, long_only)
     curves = {name: results[name]["total"] for name in [config.MAIN_STRATEGY, SMART_BETA]
               if name in results}
     curves["Benchmark"] = data["bench_ret"].reindex(next(iter(results.values())).index)
     tables = build_tables(results, strategies, z, score, data, long_only)
     return {"long_only": long_only, "mode": mode_name(long_only), "sectors": data["sectors"],
-            "raw": raw, "z": z, "score": score, "long_short": long_short,
-            "strategies": strategies, "results": results, "curves": pd.DataFrame(curves),
-            "tables": tables}
+            "raw": raw, "z": z, "score": score, "strategies": strategies, "results": results,
+            "curves": pd.DataFrame(curves), "tables": tables}

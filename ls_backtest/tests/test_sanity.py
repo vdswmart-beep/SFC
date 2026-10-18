@@ -1,4 +1,4 @@
-"""Sanity tests on fake data: neutrality, positions, universe, look-ahead, hedge, switch."""
+"""Sanity tests on fake data: weights, sectors, universe, look-ahead, hedge, switch, references."""
 import numpy as np
 import pandas as pd
 import pytest
@@ -9,7 +9,7 @@ from src.metrics import perf_stats, sharpe_test
 from src.portfolio import long_only_weights, ls_weights, skip_short_leg
 from src.signals import composite, compute_signals, sector_zscore
 
-PARAMS = dict(n_positions=12, min_sector_size=3, min_stocks_date=20)
+PARAMS = dict(n_positions=12, max_per_sector=2, min_sector_size=3, min_stocks_date=20)
 
 
 @pytest.fixture(scope="module")
@@ -40,12 +40,21 @@ def _stats(z: pd.DataFrame, data: dict, beta_window: int | None = None) -> pd.Se
     return perf_stats(res, data["bench_ret"], data["rf"])
 
 
-def test_weights_neutral(weights: pd.DataFrame, data: dict) -> None:
-    """LONGs = +1, SHORTs = -1 and every sector nets to 0."""
+def test_weights_sum(weights: pd.DataFrame) -> None:
+    """LONGs = +100 %, SHORTs = -100 %: the pocket finances itself."""
     w = weights.iloc[-1]
     assert np.isclose(w[w > 0].sum(), 1.0)
     assert np.isclose(w[w < 0].sum(), -1.0)
-    assert np.allclose(w.groupby(data["sectors"]).sum(), 0.0)
+
+
+def test_sectors(weights: pd.DataFrame, zscores: dict, data: dict) -> None:
+    """At most max_per_sector stocks of one sector on each side; LONGs above their sector's
+    average, SHORTs below."""
+    w, score = weights.iloc[-1], composite(zscores, 3).iloc[-1]
+    sector = data["sectors"]
+    assert (w > 0).groupby(sector).sum().max() <= PARAMS["max_per_sector"]
+    assert (w < 0).groupby(sector).sum().max() <= PARAMS["max_per_sector"]
+    assert (score[w > 0] > 0).all() and (score[w < 0] < 0).all()
 
 
 def test_position_count(weights: pd.DataFrame) -> None:

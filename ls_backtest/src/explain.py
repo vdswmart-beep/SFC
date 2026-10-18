@@ -1,27 +1,10 @@
-"""Plain-English explanations of a portfolio, for the web app: pairs, reasons, ranking, changes."""
+"""Plain-English explanations of a portfolio, for the web app: reasons, ranking, sectors, moves."""
 import numpy as np
 import pandas as pd
 
 # each signal in words, when its z-score is positive / negative
 WORDS = {"value": ("cheap", "expensive"), "momentum": ("rising", "falling"),
          "quality": ("profitable", "unprofitable"), "lowvol": ("steady", "volatile")}
-
-
-def pairs_at(long_short: pd.Series, score: pd.Series, sectors: pd.Series) -> pd.DataFrame:
-    """The LONG/SHORT pairs at one date, rebuilt from the weights: in each sector the best LONG
-    faces the worst SHORT, the 2nd best the 2nd worst... (as in portfolio.py).
-    Inputs: weights and scores at that date; output: one row per pair, widest spread first."""
-    held = long_short[long_short != 0]
-    rows = []
-    for sector, w in held.groupby(sectors.reindex(held.index)):
-        longs = score[w.index[w > 0]].sort_values(ascending=False, kind="stable").index
-        shorts = score[w.index[w < 0]].sort_values(kind="stable").index
-        for long, short in zip(longs, shorts, strict=True):  # every LONG has its SHORT
-            rows.append({"Sector": sector, "LONG": long, "SHORT": short,
-                         "Spread": score[long] - score[short], "Weight": held[long]})
-    pairs = pd.DataFrame(rows, columns=["Sector", "LONG", "SHORT", "Spread", "Weight"])
-    pairs = pairs.sort_values("Spread", ascending=False, ignore_index=True)
-    return pairs.set_axis(pd.RangeIndex(1, len(pairs) + 1, name="Pair"))
 
 
 def _word(signal: str, z: float) -> str:
@@ -53,7 +36,7 @@ def ranking_at(date: pd.Timestamp, score: pd.DataFrame, zscores: dict[str, pd.Da
     best_first = score.loc[date].dropna().sort_values(ascending=False, kind="stable")
     table = pd.DataFrame({"Rank": np.arange(1, len(best_first) + 1),
                           "Sector": sectors.reindex(best_first.index), "Score": best_first})
-    # pairs are formed inside a sector: the rank there says who can be LONG or SHORT
+    # at most MAX_PER_SECTOR stocks of a sector per side: the rank there shows who was kept out
     in_sector = table.groupby("Sector")["Score"].rank(ascending=False, method="first")
     table["Rank in sector"] = in_sector.astype(int)
     for name, z in zscores.items():
@@ -62,6 +45,16 @@ def ranking_at(date: pd.Timestamp, score: pd.DataFrame, zscores: dict[str, pd.Da
     table["Side"] = np.select([held > 0, held < 0], ["LONG", "SHORT"], default="")
     table["Weight"] = held.where(held != 0)
     return table.rename_axis("Ticker")
+
+
+def sector_exposure(weights: pd.Series, sectors: pd.Series) -> pd.DataFrame:
+    """LONG, SHORT and net weight of each sector held at one date, largest net first."""
+    held = weights[weights != 0]
+    sector = sectors.reindex(held.index)
+    table = pd.DataFrame({"LONG": held.clip(lower=0).groupby(sector).sum(),
+                          "SHORT": held.clip(upper=0).groupby(sector).sum()})
+    table["Net"] = table["LONG"] + table["SHORT"]
+    return table.rename_axis("Sector").sort_values("Net", ascending=False)
 
 
 def holdings(weights: pd.DataFrame, sectors: pd.Series, end: pd.Timestamp,

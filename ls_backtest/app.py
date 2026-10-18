@@ -1,5 +1,6 @@
 """Web app: the sidebar picks the data and the mode (the long-only switch); four pages explain
 the model and show what it holds and how it did. Start it with `streamlit run app.py` here."""
+import importlib
 from pathlib import Path
 
 import streamlit as st
@@ -7,6 +8,10 @@ import streamlit as st
 import config
 from model import run_model
 from src.data import load_data, make_fake_data
+
+# Streamlit keeps imported modules in memory: re-reading config.py at every run makes sure an
+# edit is used even if it was saved while no browser tab was open
+importlib.reload(config)
 
 HERE = Path(__file__).parent
 FAKE = "Fake data (demo)"

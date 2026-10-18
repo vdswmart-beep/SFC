@@ -1,11 +1,12 @@
-"""Performance page: the key figures, the charts and the tables of the Excel report."""
-import altair as alt
+"""Performance page: the key figures, the charts, the stress periods and the tables of the Excel
+report."""
 import pandas as pd
 import streamlit as st
 
 import config
+from app_pages.charts import line_chart
 from app_pages.common import current_run, show, styled
-from src.charts import COLORS, growth_and_drawdown
+from src.charts import growth_and_drawdown
 from src.export import PERCENT_SHEETS
 
 NOTES = {  # what each table answers (README section 8)
@@ -41,23 +42,28 @@ def key_figures(tables: dict) -> None:
                            "index's.")
 
 
-def line_chart(lines: pd.DataFrame, number_format: str) -> alt.Chart:
-    """One line per column, in the colors of the report's charts, with values on hover."""
-    long = lines.rename_axis("Month").reset_index().melt("Month", var_name="Series",
-                                                          value_name="Value")
-    colors = alt.Scale(domain=list(lines.columns), range=COLORS[: len(lines.columns)])
-    return alt.Chart(long).mark_line().encode(
-        x=alt.X("Month:T", title=None, axis=alt.Axis(format="%Y", tickCount="year")),
-        y=alt.Y("Value:Q", title=None, axis=alt.Axis(format=number_format),
-                scale=alt.Scale(zero=False)),
-        color=alt.Color("Series:N", scale=colors, legend=alt.Legend(orient="bottom", title=None)),
-        tooltip=[alt.Tooltip("Month:T", format="%Y-%m"), "Series",
-                 alt.Tooltip("Value:Q", format=number_format)],
-    )
+def stress_charts(curves: pd.DataFrame) -> None:
+    """Growth of 1 of the total portfolios over each stress period that lies in the sample."""
+    inside = {label: (start, end) for label, (start, end) in config.STRESS_PERIODS.items()
+              if not curves.loc[start:end].empty}
+    if not inside:
+        st.info(f"No stress period lies in the sample ({curves.index[0]:%Y-%m} to "
+                f"{curves.index[-1]:%Y-%m}). Yahoo's accounts start in 2022: for 20 years of "
+                "price signals, set SIGNALS = ['momentum', 'lowvol'] and MIN_SIGNALS = 2 in "
+                "config.py, or use the Bloomberg data.")
+        return
+    label = st.radio("Stress period", list(inside), horizontal=True)
+    start, end = inside[label]
+    growth, _ = growth_and_drawdown(curves.loc[start:end])
+    st.altair_chart(line_chart(growth, ".2f"))
+    st.caption("Growth of 1 of the total portfolios (long/short: index + pocket), from the month "
+               "before the stress period. The table above shows the returns above the index.")
 
 
-def result_tables(tables: dict) -> None:
-    """The tables of the Excel report, one tab each (Positions: see the Portfolio page)."""
+def result_tables(run: dict) -> None:
+    """The tables of the Excel report, one tab each (Positions: see the Portfolio page), with
+    the charts of the stress periods under their table."""
+    tables = run["tables"]
     titles = [title for title in tables if title != "Positions"]
     for tab, title in zip(st.tabs(titles), titles, strict=True):
         with tab:
@@ -68,6 +74,8 @@ def result_tables(tables: dict) -> None:
                 table = table.loc[period]
             height = 600 if title == "Monthly returns" else "content"  # 1 row per month
             show(styled(table, all_percent=title in PERCENT_SHEETS), height)
+            if title == "Stress tests":
+                stress_charts(run["curves"])
 
 
 run = current_run()
@@ -84,4 +92,4 @@ with left:
 with right:
     st.markdown("**Drawdown from the previous peak**")
     st.altair_chart(line_chart(drawdown, ".0%"))
-result_tables(run["tables"])
+result_tables(run)

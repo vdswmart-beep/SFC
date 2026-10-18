@@ -13,7 +13,8 @@ CHANGES = [  # (what to change, where to change it)
     ("Number of positions", "config.py → N_POSITIONS (even number: 20 = 10 LONG + 10 SHORT)"),
     ("A signal, or a new one", "src/signals.py → compute_signals, then config.py → SIGNALS; "
                                "its words in this app: src/explain.py → WORDS"),
-    ("How pairs are chosen and weighted", "src/portfolio.py → _sector_pairs, _date_weights"),
+    ("How LONGs and SHORTs are chosen", "config.py → N_POSITIONS, MAX_PER_SECTOR; "
+                                        "src/portfolio.py → _pick, _date_weights"),
     ("The exclusion rule (H1)", "config.py → EXCL_THRESHOLD; src/portfolio.py → _eligible"),
     ("Costs", "config.py → TC_BPS, BORROW_BPS_YR; their grids TC_GRID_BPS, BORROW_GRID_BPS_YR"),
     ("The beta hedge", "config.py → BETA_HEDGE, BETA_WINDOW; src/backtest.py → _hedge"),
