@@ -33,9 +33,11 @@ def heatmap(cells: pd.DataFrame, row: str) -> alt.Chart:
         x=alt.X("Month:O", title=None),
         y=alt.Y(f"{row}:N", sort="ascending", title=None,
                 axis=alt.Axis(labelOverlap=False, labelLimit=320)),
-        color=alt.Color("Weight:Q", scale=color, legend=alt.Legend(format="%", title="Weight")),
+        # legend above the rows: it stays readable even when the heatmap has only a few rows
+        color=alt.Color("Weight:Q", scale=color,
+                        legend=alt.Legend(format="%", title="Weight", orient="top")),
         tooltip=[*tooltip, alt.Tooltip("Weight:Q", format=".1%")],
-    ).properties(height=20 * cells[row].nunique() + 80)  # + room for the month labels
+    ).properties(height=alt.Step(20))  # 20 pixels per row, whatever the number of rows
 
 
 def sector_bars(exposure: pd.DataFrame) -> alt.Chart:
