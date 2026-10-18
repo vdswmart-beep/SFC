@@ -23,13 +23,19 @@ def _axes(title: str) -> tuple[Figure, object]:
     return fig, ax
 
 
-def performance_charts(returns: pd.DataFrame) -> dict[str, Figure]:
-    """Growth of 1 and drawdown of each column of monthly returns (at most three columns).
-    Output: {PNG file name: figure}; the legend carries the values, so no label can collide."""
+def growth_and_drawdown(returns: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Growth of 1 and drawdown from the previous peak of each column of monthly returns.
+    Also used by the web app, so that its charts match the report's."""
     start = returns.index[0] - pd.offsets.MonthEnd(1)  # every curve starts at 1, a month earlier
     growth = pd.concat([pd.DataFrame(1.0, index=[start], columns=returns.columns),
                         (1 + returns).cumprod()])
-    drawdown = growth / growth.cummax() - 1
+    return growth, growth / growth.cummax() - 1
+
+
+def performance_charts(returns: pd.DataFrame) -> dict[str, Figure]:
+    """Growth of 1 and drawdown of each column of monthly returns (at most three columns).
+    Output: {PNG file name: figure}; the legend carries the values, so no label can collide."""
+    growth, drawdown = growth_and_drawdown(returns)
     fig_growth, ax_growth = _axes("Growth of 1, net of costs")
     fig_dd, ax_dd = _axes("Drawdown from the previous peak")
     ax_dd.yaxis.set_major_formatter(PercentFormatter(1.0, decimals=0))

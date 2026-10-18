@@ -10,7 +10,7 @@ def _hedge(active: pd.Series, bench: pd.Series, rf: pd.Series, window: int) -> p
     """Pocket made beta-neutral by selling index futures for its beta. The beta comes from the
     pocket's own past returns (`window` months, at least a third of it), known at t."""
     # betas of single stocks, estimated on the months that selected them, are biased and
-    # over-hedge the pocket (README section 8); the pocket's realized beta is not
+    # over-hedge the pocket (README section 6, beta hedge); the pocket's realized beta is not
     rolling = dict(window=window, min_periods=window // 3)
     beta = active.rolling(**rolling).cov(bench) / bench.rolling(**rolling).var()
     return active - beta.shift(1).fillna(0.0) * (bench - rf)  # short futures earn -(index - rf)
@@ -37,6 +37,6 @@ def run_backtest(weights: pd.DataFrame, returns: pd.DataFrame, bench_ret: pd.Ser
         active = _hedge(active, bench, rf.reindex(active.index), beta_window)
     return pd.DataFrame({
         "active": active,
-        "total": bench + active,  # equitized: index exposure through futures + the pocket
+        "total": bench + active,  # long/short: index (futures) + pocket; long-only: the stocks
         "turnover": turnover.reindex(active.index),
     })

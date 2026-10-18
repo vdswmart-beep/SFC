@@ -1,4 +1,4 @@
-"""Sanity tests on fake data: neutrality, positions, universe, look-ahead, hedge, references."""
+"""Sanity tests on fake data: neutrality, positions, universe, look-ahead, hedge, switch."""
 import numpy as np
 import pandas as pd
 import pytest
@@ -6,7 +6,7 @@ import pytest
 from src.backtest import run_backtest
 from src.data import make_fake_data
 from src.metrics import perf_stats, sharpe_test
-from src.portfolio import long_only_weights, ls_weights
+from src.portfolio import long_only_weights, ls_weights, skip_short_leg
 from src.signals import composite, compute_signals, sector_zscore
 
 PARAMS = dict(n_positions=12, min_sector_size=3, min_stocks_date=20)
@@ -64,15 +64,22 @@ def test_no_lookahead(data: dict) -> None:
     ret = data["tr"].pct_change(fill_method=None)
     cheat = sector_zscore(ret.shift(-1), data["member"], data["sectors"])  # knows t -> t+1
     past = sector_zscore(ret, data["member"], data["sectors"])  # past returns only
-    assert _stats(cheat, data)["IR (pocket Sharpe)"] > 10
-    assert abs(_stats(past, data)["IR (pocket Sharpe)"]) < 2
+    assert _stats(cheat, data)["IR"] > 10
+    assert abs(_stats(past, data)["IR"]) < 2
 
 
 def test_beta_hedge(zscores: dict, data: dict) -> None:
     """Low vol buys low-beta stocks: unhedged, the pocket's beta is clearly negative;
     hedged with index futures, it is close to 0."""
-    assert _stats(zscores["lowvol"], data)["Pocket beta"] < -0.2
-    assert abs(_stats(zscores["lowvol"], data, beta_window=36)["Pocket beta"]) < 0.1
+    assert _stats(zscores["lowvol"], data)["Active beta"] < -0.2
+    assert abs(_stats(zscores["lowvol"], data, beta_window=36)["Active beta"]) < 0.1
+
+
+def test_long_only(weights: pd.DataFrame) -> None:
+    """The switch: the SHORT leg is skipped; the same LONGs stay, fully invested."""
+    w, long_only = weights.iloc[-1], skip_short_leg(weights).iloc[-1]
+    assert (long_only >= 0).all() and np.isclose(long_only.sum(), 1.0)
+    assert long_only[long_only > 0].equals(w[w > 0])
 
 
 def test_smart_beta(zscores: dict) -> None:

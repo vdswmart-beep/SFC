@@ -1,5 +1,8 @@
-"""Model parameters: only main.py reads this file.
+"""Model parameters, read by model.py. The web app (app.py) can override LONG_ONLY with its toggle.
 Data-source settings (tickers, dates) live in fetch_yahoo.py and bloomberg_to_csv.py."""
+
+# --- The switch ---
+LONG_ONLY = False  # True: the SHORT leg is skipped; the LONGs are held fully invested, no hedge
 
 # --- Universe size: values for the EURO STOXX 50; for the STOXX Europe 600 use 5 and 50 ---
 MIN_SECTOR_SIZE = 3  # scored stocks a sector needs before pairs are formed in it
@@ -13,7 +16,7 @@ FUND_LAG = 3  # months between a fiscal period end and the publication of its ac
 # --- Portfolio ---
 N_POSITIONS = 12  # total positions, half LONG and half SHORT (even number): 20 -> 10 + 10
 EXCL_THRESHOLD = -1.0  # H1: no LONG with any z below -1, no SHORT with any z above +1
-BETA_HEDGE = True  # sell index futures for the pocket's beta: the pocket becomes beta-neutral
+BETA_HEDGE = True  # long/short only: sell index futures for the pocket's beta (beta-neutral)
 BETA_WINDOW = 36  # months of the pocket's own past returns used to estimate its beta
 SMART_BETA_TOP = 0.20  # long-only reference: best 20% of scored stocks, equally weighted
 

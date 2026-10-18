@@ -8,7 +8,7 @@ from matplotlib.figure import Figure
 from openpyxl.styles import Font
 from openpyxl.utils import get_column_letter
 
-PERCENT_COLUMNS = {"Active return (ann.)", "Tracking error", "Max DD (pocket)", "Alpha (ann.)",
+PERCENT_COLUMNS = {"Active return (ann.)", "Tracking error", "Max DD (active)", "Alpha (ann.)",
                    "Weight"}
 PERCENT_SHEETS = {"Stress tests", "Monthly returns"}  # every number there is a return
 PERCENT, RATIO = "0.0%;(0.0%);-", "0.00;(0.00);-"  # finance style: negatives in brackets

@@ -11,7 +11,7 @@ def _sharpe(excess: pd.Series) -> float:
 
 
 def perf_stats(res: pd.DataFrame, bench_ret: pd.Series, rf: pd.Series) -> pd.Series:
-    """Annualized statistics of one strategy.
+    """Annualized statistics of one strategy; "active" = return above the benchmark.
     Inputs: run_backtest output, monthly Series; output: Series name -> value."""
     active, bench, rf = res["active"], bench_ret.reindex(res.index), rf.reindex(res.index)
     ann, te = active.mean() * 12, active.std() * sqrt(12)
@@ -19,11 +19,11 @@ def perf_stats(res: pd.DataFrame, bench_ret: pd.Series, rf: pd.Series) -> pd.Ser
     return pd.Series({
         "Active return (ann.)": ann,
         "Tracking error": te,
-        # the pocket is self-financing (already an excess return): its Sharpe ratio is its IR
-        "IR (pocket Sharpe)": ann / te,
+        # long/short: the pocket is self-financing, so this IR is also the pocket's Sharpe ratio
+        "IR": ann / te,
         "t-stat": active.mean() / active.std() * sqrt(len(active)),
-        "Max DD (pocket)": (wealth / wealth.cummax() - 1).min(),
-        "Pocket beta": active.cov(bench) / bench.var(),  # close to 0 when the hedge works
+        "Max DD (active)": (wealth / wealth.cummax() - 1).min(),
+        "Active beta": active.cov(bench) / bench.var(),  # close to 0 when the hedge works
         "Avg turnover": res["turnover"].mean(),
         "Sharpe (total)": _sharpe(res["total"] - rf),
         "Sharpe (benchmark)": _sharpe(bench - rf),

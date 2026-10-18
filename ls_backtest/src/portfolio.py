@@ -2,16 +2,18 @@
 import pandas as pd
 
 
-def _sector_pairs(sector_scores: pd.Series, long_ok: pd.Series,
-                  short_ok: pd.Series) -> list[tuple[float, str, str]]:
+def _sector_pairs(sector_scores: pd.Series, long_ok: set[str],
+                  short_ok: set[str]) -> list[tuple[float, str, str]]:
     """Candidate pairs of a sector: best vs worst score, then 2nd best vs 2nd worst, etc.
     Output: list of (score spread, LONG ticker, SHORT ticker)."""
-    best_first = sector_scores.sort_values(ascending=False, kind="stable").index
-    longs = [t for t in best_first if long_ok[t]]  # exclusion variant (otherwise all pass)
-    shorts = [t for t in reversed(best_first) if short_ok[t]]
+    # plain list and dict: much faster than pandas objects when read one item at a time
+    best_first = sector_scores.sort_values(ascending=False, kind="stable").index.tolist()
+    score = sector_scores.to_dict()
+    longs = [t for t in best_first if t in long_ok]  # exclusion variant (otherwise all pass)
+    shorts = [t for t in reversed(best_first) if t in short_ok]
     pairs = []
     for long, short in zip(longs, shorts, strict=False):  # lengths differ with the exclusion
-        spread = sector_scores[long] - sector_scores[short]
+        spread = score[long] - score[short]
         if spread <= 0:
             break  # the two lists have crossed: no useful pair left in this sector
         pairs.append((spread, long, short))
@@ -19,9 +21,9 @@ def _sector_pairs(sector_scores: pd.Series, long_ok: pd.Series,
 
 
 def _date_weights(scored: pd.Series, sectors: pd.Series, n_positions: int, min_sector_size: int,
-                  long_ok: pd.Series, short_ok: pd.Series) -> pd.Series:
+                  long_ok: set[str], short_ok: set[str]) -> pd.Series:
     """Weights at one date: the n_positions / 2 pairs with the widest score spread.
-    Input: scores of the scored stocks; output: Series ticker -> weight."""
+    Input: scores of the scored stocks, tickers allowed on each side; output: ticker -> weight."""
     candidates = []
     for _, sector_scores in scored.groupby(sectors):
         if len(sector_scores) >= min_sector_size:  # too few stocks: unreliable comparison
@@ -64,10 +66,17 @@ def ls_weights(score: pd.DataFrame, sectors: pd.Series, n_positions: int, min_se
         scored = score.loc[date].dropna()  # stocks with a score at this date
         if len(scored) < min_stocks_date:
             continue  # universe too thin: date not invested
-        w = _date_weights(scored, sectors, n_positions, min_sector_size,
-                          long_ok.loc[date], short_ok.loc[date])
+        long_set = set(score.columns[long_ok.loc[date]])  # tickers allowed on the LONG side
+        short_set = set(score.columns[short_ok.loc[date]])
+        w = _date_weights(scored, sectors, n_positions, min_sector_size, long_set, short_set)
         weights.loc[date, w.index] = w.to_numpy()
     return weights
+
+
+def skip_short_leg(weights: pd.DataFrame) -> pd.DataFrame:
+    """Long-only version of a LONG/SHORT portfolio: the SHORT leg is dropped. The LONGs already
+    sum to 100 %, so the portfolio stays fully invested in exactly the same stocks."""
+    return weights.clip(lower=0)
 
 
 def long_only_weights(score: pd.DataFrame, top: float, min_stocks_date: int) -> pd.DataFrame:

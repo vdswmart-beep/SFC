@@ -4,4 +4,6 @@ statsmodels
 matplotlib
 openpyxl
 yfinance>=1.7
+streamlit>=1.50
+altair
 pytest

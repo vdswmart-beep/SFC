@@ -20,6 +20,7 @@ def load_data(folder: str) -> dict:
     Output: dict tr, btp, roe, member, sectors, bench_ret, rf, factors (None if absent)."""
     path = Path(folder)
     tr = _read_wide(path / "tr_index.csv")
+    tr = tr.where(tr > 0)  # an index must be positive (Yahoo's adjusted prices can turn negative)
     # one dates x tickers grid for every file: avoids silent misalignments between files
     btp, roe, member = (_read_wide(path / name).reindex(index=tr.index, columns=tr.columns)
                         for name in ["book_to_price.csv", "roe.csv", "member.csv"])

@@ -1,0 +1,17 @@
+# Settings of the web app. Streamlit reads this file when started from the ls_backtest folder.
+
+[theme]
+base = "light"
+primaryColor = "#2a78d6"            # the main blue of the report's charts
+backgroundColor = "#fcfcfb"         # the charts' background
+secondaryBackgroundColor = "#f1f1ee"
+textColor = "#0b0b0b"
+
+[server]
+runOnSave = true                    # saving a change to the code or to config.py refreshes the app
+
+[client]
+toolbarMode = "viewer"              # no developer menu or Deploy button: the app is for reading
+
+[browser]
+gatherUsageStats = false            # nothing about the app is sent to Streamlit

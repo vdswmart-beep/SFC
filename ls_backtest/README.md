@@ -8,6 +8,10 @@ Active Management*: the simplest correct model, on which hypotheses H1 to H4 are
 Phase 1 uses the EURO STOXX 50 with free Yahoo Finance data; phase 2 the STOXX Europe 600 with
 Bloomberg. Only the data source changes between the two.
 
+One switch, `LONG_ONLY` in `config.py` (or the toggle of the web app), skips the SHORT leg: the
+same LONGs are then held alone, fully invested, and compared with the index. A web app explains
+the model, maps the code and shows the stocks held and why (section 7).
+
 ## 2. Installation
 Python 3.11 or later.
 ```bash
@@ -22,11 +26,14 @@ pip install -r requirements.txt
 python main.py              # fake data, no connection needed
 python fetch_yahoo.py       # downloads the EURO STOXX 50 into data/yahoo/ (a few minutes)
 python main.py data/yahoo   # backtest on those files
-python -m pytest            # sanity tests
+streamlit run app.py        # the web app, in your browser (section 7)
+python -m pytest            # tests
 ```
-Bloomberg: section 4.3. Every run prints the tables and writes to `output/`: one CSV per table,
-`report.xlsx` (one formatted sheet per table), `cumulative.png` and `drawdown.png`.
-The fake data have no factor premium: IRs close to zero or negative are expected there.
+Bloomberg: section 4.3. Every run of `main.py` prints the tables and writes to
+`output/long_short/` (or `output/long_only/` when `LONG_ONLY = True`, so the two reports sit
+side by side): one CSV per table, `report.xlsx` (one formatted sheet per table),
+`cumulative.png` and `drawdown.png`. The fake data have no factor premium: IRs close to zero or
+negative are expected there.
 
 ## 4. Data
 ### 4.1 Six CSV files: the only contact with the source
@@ -52,6 +59,8 @@ business day is accepted), then one column per ticker, with the same tickers in 
 - **Benchmark and rf**: price index (no dividends) and rf = 0 %: the total return and the Sharpe
   ratios are approximate; the pocket (IR, alpha) is not affected.
 - **Currency**: B/P dropped for companies reporting in USD (Prosus, argenx).
+- **Prices**: Yahoo's adjusted prices can turn negative far back in time (AB InBev before 2009);
+  `load_data` treats a non-positive level as missing.
 
 ### 4.3 Bloomberg (phase 2: STOXX Europe 600)
 The workbook `bloomberg/SXXP_extraction.xlsx` holds the Bloomberg formulas; its README sheet
@@ -63,7 +72,7 @@ gives every step. In short:
 3. `python bloomberg_to_csv.py data/bloomberg/SXXP_extraction.xlsx` writes the CSV files next
    to it and prints the checks (months loaded, stocks without prices, stocks without sector).
 4. In `config.py`: `MIN_SECTOR_SIZE = 5`, `MIN_STOCKS_DATE = 50`, `SHOW_HOLDOUT = False`.
-5. `python main.py data/bloomberg`.
+5. `python main.py data/bloomberg`, or choose `data/bloomberg` in the web app.
 
 The universe is every stock that was in the index at any month-end from 2005 to 2025, delisted
 stocks included; prices start in 2002 so that momentum and volatility exist from 2005.
@@ -80,30 +89,46 @@ ls_backtest/
 ├── README.md
 ├── requirements.txt         dependencies
 ├── .gitignore               data/ and output/ are never versioned
-├── config.py                every model parameter (only main.py reads it)
-├── main.py                  orchestration: data -> signals -> weights -> backtests -> outputs
+├── .streamlit/config.toml   look and settings of the web app
+├── config.py                every model parameter, including the LONG_ONLY switch
+├── model.py                 the model in one call: data -> signals -> pairs -> switch -> tables
+├── main.py                  command line: runs model.py, prints and writes the outputs
+├── app.py                   web app: sidebar (data, switch) and navigation between the pages
 ├── fetch_yahoo.py           Yahoo connector -> data/yahoo/*.csv
 ├── bloomberg_to_csv.py      Bloomberg connector: refreshed workbook -> data/bloomberg/*.csv
 ├── bloomberg/
 │   └── SXXP_extraction.xlsx Bloomberg formulas (empty template, see its README sheet)
-├── src/
+├── src/                     the model: pure functions, parameters passed as arguments
 │   ├── __init__.py          empty: makes src a package
 │   ├── data.py              reads the CSV files, generates fake data
 │   ├── signals.py           raw signals, sector z-scores, composite score
-│   ├── portfolio.py         LONG/SHORT pairs; long-only smart beta reference
+│   ├── portfolio.py         LONG/SHORT pairs; the switch (skip_short_leg); smart beta reference
 │   ├── backtest.py          net returns of the pocket (beta-hedged) and of the total portfolio
 │   ├── metrics.py           annualized statistics, Sharpe test, Fama-French alpha
 │   ├── regimes.py           market regimes (trend x volatility)
 │   ├── report.py            result tables
 │   ├── charts.py            growth of 1 and drawdown charts
-│   └── export.py            writes CSV files, report.xlsx and PNG charts (the only side effects)
+│   ├── export.py            writes CSV files, report.xlsx and PNG charts (the only side effects)
+│   └── explain.py           the "why" of the web app: pairs, reasons, ranking, entries and exits
+├── app_pages/               one file per page of the web app
+│   ├── __init__.py          empty: makes app_pages a package
+│   ├── common.py            the current run and the look of the tables
+│   ├── how_it_works.py      the model as a recipe, with the file and function of each step
+│   ├── code_map.py          where to change what, the role of each file, the code itself
+│   ├── portfolio.py         the lines held and why, the full ranking, the holdings over time
+│   └── performance.py       key figures, charts and the tables of the Excel report
 ├── tests/
-│   └── test_sanity.py       neutrality, positions, universe, look-ahead, hedge, references
+│   ├── test_sanity.py       neutrality, positions, universe, look-ahead, hedge, switch
+│   ├── test_explain.py      pairs rebuilt from the weights, reasons, ranking, moves
+│   └── test_app.py          every page of the web app runs, in both modes
 ├── data/
 │   ├── yahoo/               CSV files from Yahoo (not versioned)
 │   └── bloomberg/           refreshed workbook and its CSV files (not versioned)
-└── output/                  results, created by each run
+└── output/                  results of main.py: long_short/ and long_only/
 ```
+`main.py` and `app.py` both call `run_model` (`model.py`), so the command line and the web app
+always show the same numbers. `src/` never reads `config.py`: `model.py` passes the parameters
+to its functions as arguments.
 
 ## 6. The model, step by step
 1. **Monthly returns**: r(t) = TR(t) / TR(t-1) - 1, dividends included.
@@ -128,32 +153,63 @@ ls_backtest/
      sector;
    - exclusion variant (H1): no LONG with any factor z below -1 (`EXCL_THRESHOLD`), no SHORT
      with any factor z above +1.
-6. **Beta hedge**: the pocket's beta is estimated on its own past 36 monthly returns (12 at
-   least, `BETA_WINDOW`), and index futures are sold for that beta during the next month. The
-   betas of single stocks would be biased: they are estimated on the same months that selected
-   the stocks, and they over-hedge the pocket (on fake data, the low-vol pocket hedged with stock
-   betas ended with a beta of +0.7 instead of 0; hedged with its own past beta, about 0).
-7. **Smart beta reference** (long-only): the best 20 % of scored stocks (`SMART_BETA_TOP`),
-   equally weighted, never hedged: what a multi-factor smart beta ETF would hold.
-8. **Backtest**: pocket = sum of weights x returns - costs - hedge, where costs = turnover x 10 bps
+6. **The switch** (`LONG_ONLY`, `skip_short_leg`): `False` (default) keeps the long/short
+   pocket on top of the index. `True` skips the SHORT leg of every pair strategy: the same LONGs,
+   which already total 100 %, are held alone, fully invested, without futures or borrow fees; the
+   active return is then the portfolio's return minus the index's. The web app's toggle does the
+   same without editing `config.py`.
+7. **Beta hedge** (long/short only): the pocket's beta is estimated on its own past 36 monthly
+   returns (12 at least, `BETA_WINDOW`), and index futures are sold for that beta during the next
+   month. The betas of single stocks would be biased: they are estimated on the same months that
+   selected the stocks, and they over-hedge the pocket (on fake data, the low-vol pocket hedged
+   with stock betas ended with a beta of +0.7 instead of 0; hedged with its own past beta,
+   about 0).
+8. **Smart beta reference** (long-only in both modes): the best 20 % of scored stocks
+   (`SMART_BETA_TOP`), equally weighted, never hedged: what a multi-factor smart beta ETF would
+   hold.
+9. **Backtest**: pocket = sum of weights x returns - costs - hedge, where costs = turnover x 10 bps
    (`TC_BPS`) + |SHORTs| x 50 bps / 12 (`BORROW_BPS_YR`). Total portfolio = benchmark return +
-   pocket. For the long-only reference, the pocket is its return minus the benchmark's. All
-   strategies start on the same month (the latest start among them).
+   pocket. For a long-only portfolio, the pocket is its return minus the benchmark's, so the
+   total is simply the portfolio's return. All strategies start on the same month (the latest
+   start among them).
 
 The strategies compared: the four single-factor pocket strategies (`Single value`, ...),
 `Composite`, `Composite + exclusion` (the main strategy) and `Smart beta (long-only)`.
 
-## 7. Evaluation: what each output shows
+## 7. The web app
+```bash
+cd ~/SFC/ls_backtest
+streamlit run app.py        # opens http://localhost:8501 in the browser; Ctrl+C to stop
+```
+The sidebar picks the **data** (every folder of `data/` that holds the CSV files, or the fake
+data) and the **mode** (the long-only toggle, by default `LONG_ONLY`). Four pages:
+- **How it works**: the recipe of section 6 as a diagram and seven steps, each with its file and
+  function, filled with the current values of `config.py`.
+- **Code map**: where to change what, the role of every file and function (read from the
+  docstrings, so always up to date), and the code of any file with line numbers.
+- **Portfolio**: for a strategy and a month-end, the lines held with their z-scores and the
+  reasons in words; the pairs behind them (LONG, SHORT, spread, weight); the full ranking of the
+  scored stocks with the held ones highlighted; a heatmap of the holdings over time with the
+  stocks that entered and left.
+- **Performance**: the key figures of the main strategy, growth of 1 and drawdown, and the tables
+  of the Excel report.
+
+The model runs once per data source and mode (a few seconds on Yahoo data, about 20 on the
+fake data, which have 800 stocks like the STOXX Europe 600), then the app reads it from memory.
+A change to the code, to `config.py` or to the data files re-runs it automatically. The app runs
+on your machine only: nothing is sent anywhere.
+
+## 8. Evaluation: what each output shows
 | Table / chart | Content | Hypothesis |
 |---|---|---|
-| Summary | active return, tracking error, IR (= pocket Sharpe: the pocket is self-financing), t-stat, max drawdown, residual beta, turnover, Sharpe of the total portfolio and of the benchmark; full sample, before the hold-out, hold-out | H1 |
+| Summary | active return, tracking error, IR (for a long/short pocket, which is self-financing, also its Sharpe ratio), t-stat, max drawdown of the active return, active beta, turnover, Sharpe of the total portfolio and of the benchmark; full sample, before the hold-out, hold-out | H1 |
 | Sharpe test | Jobson-Korkie test with Memmel's correction: total portfolio Sharpe above the benchmark's? one-sided p-value | definition of a persistent Sharpe |
 | Alpha | Fama-French 5 factors + momentum, Newey-West t-stat (needs `factors.csv`) | H1 |
-| Regimes | pocket IR in each regime: Bull/Bear (12-month benchmark return) x high/low vol (12-month vol against its past median), known one month ahead | H4 |
-| Stress tests | cumulative return of the benchmark and of each pocket: GFC 2008-09, euro crisis 2011-12, Covid 2020, inflation 2022 | H3, H4 |
-| Costs | pocket IR of the main strategy for transaction costs 0/10/20 bps x borrow fees 0/50/100 bps a year | H3 |
-| Positions | the 12 current lines of the main strategy: side, weight, sector, score, z-scores | applying the strategy |
-| Monthly returns | pocket return of every strategy, every month | further analysis |
+| Regimes | IR in each regime: Bull/Bear (12-month benchmark return) x high/low vol (12-month vol against its past median), known one month ahead | H4 |
+| Stress tests | cumulative return of the benchmark and active return of each strategy: GFC 2008-09, euro crisis 2011-12, Covid 2020, inflation 2022 | H3, H4 |
+| Costs | IR of the main strategy for transaction costs 0/10/20 bps x borrow fees 0/50/100 bps a year | H3 |
+| Positions | the current lines of the main strategy (12, or 6 in long-only mode): side, weight, sector, score, z-scores | applying the strategy |
+| Monthly returns | active return of every strategy, every month | further analysis |
 | cumulative.png, drawdown.png | main strategy vs smart beta vs benchmark, total portfolios | thesis figures |
 
 The thesis calls a Sharpe ratio persistent when it is (1) measured out of sample and net of
@@ -164,13 +220,13 @@ costs: the hold-out and the cost grid; (2) statistically above the benchmark's: 
 data, keep `SHOW_HOLDOUT = False` while developing: every table and chart then stops in December
 2020. Switch it on once, for the final test.
 
-## 8. Time convention
+## 9. Time convention
 Weights are set at the end of month t with the information available at t, then applied to the
 return from t to t+1 (`weights.shift(1)` in `backtest.py`); the costs and the hedge decided at t
 are charged to month t+1. `test_no_lookahead` checks the mechanics: a signal that knows next
 month's return must give an IR above 10, a signal built on past returns an |IR| below 2.
 
-## 9. Known simplifications
+## 10. Known simplifications
 - The hedge uses the pocket's realized beta: it lags when the portfolio changes, the first 12
   months are not hedged, and futures costs and basis are ignored.
 - 12 lines: high tracking error, results driven by few stocks (`N_POSITIONS` raises it).
@@ -180,17 +236,19 @@ month's return must give an IR above 10, a signal built on past returns an |IR| 
 - The Sharpe test assumes independent, normal returns; Ledoit and Wolf (2008) is the robust
   alternative.
 
-## 10. How to extend
+## 11. How to extend
 - **More positions**: `N_POSITIONS` in `config.py` (even number: 20 = 10 LONG + 10 SHORT).
 - **A signal**: 1 line in `compute_signals` + 1 name in `SIGNALS`; it automatically gets a
-  single-factor strategy and enters the composite.
-- **A strategy**: 1 line in `build_strategies` (`main.py`).
+  single-factor strategy and enters the composite (give it words in `WORDS`, `src/explain.py`,
+  for the web app).
+- **A strategy**: 1 line in `build_strategies` (`model.py`).
 - **A metric**: 1 key in `perf_stats`; it appears in every summary.
-- **A table**: 1 function in `report.py` + 1 line in `build_tables`; it gets its own CSV file and
-  Excel sheet.
+- **A table**: 1 function in `report.py` + 1 line in `build_tables` (`model.py`); it gets its own
+  CSV file, Excel sheet and tab in the web app.
+- **A page of the web app**: 1 file in `app_pages/` + 1 line in `app.py`.
 - **Another source**: a script that writes the six CSV files of section 4.1.
 
-## 11. Roadmap
+## 12. Roadmap
 1. Bloomberg extraction of the STOXX Europe 600 (workbook ready) and French factors in EUR.
 2. Piotroski F-score inside the score or as a filter (H2).
 3. Short-sale bans, margin calls and borrow fees per stock (H3).
