@@ -4,11 +4,12 @@ Data-source settings (tickers, dates) live in fetch_yahoo.py and bloomberg_to_cs
 # --- The switch ---
 LONG_ONLY = False  # True: the SHORT leg is skipped; the LONGs are held fully invested, no hedge
 
-# --- Universe size: values for the EURO STOXX 50 (STOXX Europe 600: 5, 50, 60 and 6) ---
+# --- Universe size: values for the EURO STOXX 50 (STOXX Europe 600: 5, 50, 45 and 15) ---
 MIN_SECTOR_SIZE = 3  # scored stocks a sector needs before its stocks can be picked
 MIN_STOCKS_DATE = 20  # scored stocks needed to invest at a date
-N_POSITIONS = 20  # total positions, half LONG and half SHORT (even number): 20 -> 10 + 10
-MAX_PER_SECTOR = 2  # at most 2 stocks of one sector on each side: the book spreads over sectors
+N_LONG = 15  # LONG positions: the best scores
+N_SHORT = 5  # SHORT positions: the worst scores; fewer than LONGs, as a short costs more
+MAX_SECTOR_SHARE = 0.20  # one sector holds at most 20 % of the LONGs and 20 % of the SHORTs
 
 # --- Signals ---
 SIGNALS = ["value", "momentum", "quality", "lowvol"]  # each also gets a single-factor strategy

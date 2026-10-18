@@ -36,7 +36,7 @@ def ranking_at(date: pd.Timestamp, score: pd.DataFrame, zscores: dict[str, pd.Da
     best_first = score.loc[date].dropna().sort_values(ascending=False, kind="stable")
     table = pd.DataFrame({"Rank": np.arange(1, len(best_first) + 1),
                           "Sector": sectors.reindex(best_first.index), "Score": best_first})
-    # at most MAX_PER_SECTOR stocks of a sector per side: the rank there shows who was kept out
+    # a sector holds at most MAX_SECTOR_SHARE of each side: the rank there shows who was kept out
     in_sector = table.groupby("Sector")["Score"].rank(ascending=False, method="first")
     table["Rank in sector"] = in_sector.astype(int)
     for name, z in zscores.items():

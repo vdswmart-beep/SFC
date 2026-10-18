@@ -10,10 +10,10 @@ FOLDERS = {".": "Run and settings", "src": "The model", "app_pages": "The web ap
            "tests": "Tests"}
 CHANGES = [  # (what to change, where to change it)
     ("Long/short or long-only", "config.py → LONG_ONLY, or the toggle in the sidebar"),
-    ("Number of positions", "config.py → N_POSITIONS (even number: 20 = 10 LONG + 10 SHORT)"),
+    ("Number of LONGs and SHORTs", "config.py → N_LONG, N_SHORT"),
     ("A signal, or a new one", "src/signals.py → compute_signals, then config.py → SIGNALS; "
                                "its words in this app: src/explain.py → WORDS"),
-    ("How LONGs and SHORTs are chosen", "config.py → N_POSITIONS, MAX_PER_SECTOR; "
+    ("How LONGs and SHORTs are chosen", "config.py → MAX_SECTOR_SHARE; "
                                         "src/portfolio.py → _pick, _date_weights"),
     ("The exclusion rule (H1)", "config.py → EXCL_THRESHOLD; src/portfolio.py → _eligible"),
     ("Costs", "config.py → TC_BPS, BORROW_BPS_YR; their grids TC_GRID_BPS, BORROW_GRID_BPS_YR"),

@@ -3,34 +3,38 @@ long-only reference."""
 import pandas as pd
 
 
-def _pick(ranked: list[str], sector_of: dict[str, str], n: int, max_per_sector: int,
+def _pick(ranked: list[str], sector_of: dict[str, str], n: int, max_sector_share: float,
           allowed: set[str]) -> list[str]:
-    """The first n allowed tickers of `ranked`, with at most max_per_sector of one sector."""
+    """The first n allowed tickers of `ranked`; one sector gets at most max_sector_share of the
+    n (rounded down, but at least 1 stock)."""
+    # round(.., 9) first: in floating point, 0.2 x 15 is 3.0000000000000004
+    cap = max(1, int(round(max_sector_share * n, 9)))
     chosen, per_sector = [], {}
     for ticker in ranked:
-        sector = sector_of[ticker]
-        if ticker in allowed and per_sector.get(sector, 0) < max_per_sector:
-            chosen.append(ticker)
-            per_sector[sector] = per_sector.get(sector, 0) + 1
         if len(chosen) == n:
             break
+        sector = sector_of[ticker]
+        if ticker in allowed and per_sector.get(sector, 0) < cap:
+            chosen.append(ticker)
+            per_sector[sector] = per_sector.get(sector, 0) + 1
     return chosen
 
 
-def _date_weights(scored: pd.Series, sector_of: dict[str, str], n_positions: int,
-                  max_per_sector: int, long_ok: set[str], short_ok: set[str]) -> pd.Series:
-    """Weights at one date: the n_positions / 2 best scores LONG, the n_positions / 2 worst
-    SHORT, equally weighted: LONGs +100 %, SHORTs -100 %. Output: Series ticker -> weight."""
+def _date_weights(scored: pd.Series, sector_of: dict[str, str], n_long: int, n_short: int,
+                  max_sector_share: float, long_ok: set[str], short_ok: set[str]) -> pd.Series:
+    """Weights at one date: the n_long best scores LONG, the n_short worst SHORT. Every line
+    weighs the same: the LONGs make +100 %, the SHORTs -100 % x n_short / n_long."""
     best_first = scored.sort_values(ascending=False, kind="stable")
     # a LONG must score above its sector's average and a SHORT below: never the same stock
     ranked_long = best_first[best_first > 0].index.tolist()
     ranked_short = best_first[best_first < 0].index.tolist()[::-1]  # worst first
-    longs = _pick(ranked_long, sector_of, n_positions // 2, max_per_sector, long_ok)
-    shorts = _pick(ranked_short, sector_of, n_positions // 2, max_per_sector, short_ok)
-    if not longs or not shorts:
-        return pd.Series(dtype=float)  # one side missing: the pocket would not self-finance
-    weights = {ticker: 1 / len(longs) for ticker in longs}
-    weights.update({ticker: -1 / len(shorts) for ticker in shorts})
+    longs = _pick(ranked_long, sector_of, n_long, max_sector_share, long_ok)
+    shorts = _pick(ranked_short, sector_of, n_short, max_sector_share, short_ok)
+    if not longs:
+        return pd.Series(dtype=float)  # nothing worth buying: date not invested
+    size = 1 / len(longs)  # a SHORT weighs as much as a LONG: fewer SHORTs, a smaller SHORT leg
+    weights = {ticker: size for ticker in longs}
+    weights.update({ticker: -size for ticker in shorts})
     return pd.Series(weights, dtype=float)
 
 
@@ -49,13 +53,13 @@ def _eligible(score: pd.DataFrame, zscores: dict[str, pd.DataFrame] | None,
     return z_min >= excl_threshold, z_max <= -excl_threshold
 
 
-def ls_weights(score: pd.DataFrame, sectors: pd.Series, n_positions: int, max_per_sector: int,
-               min_sector_size: int, min_stocks_date: int,
+def ls_weights(score: pd.DataFrame, sectors: pd.Series, n_long: int, n_short: int,
+               max_sector_share: float, min_sector_size: int, min_stocks_date: int,
                zscores: dict[str, pd.DataFrame] | None = None,
                excl_threshold: float | None = None) -> pd.DataFrame:
-    """LONG/SHORT weights: at each date, the best scores LONG and the worst SHORT, at most
-    max_per_sector stocks of one sector on each side. Inputs: score wide (NaN = not scored),
-    optional zscores for the exclusion variant; output: weights wide, LONGs +1, SHORTs -1."""
+    """LONG/SHORT weights: at each date, the n_long best scores LONG and the n_short worst SHORT,
+    one sector holding at most max_sector_share of each side. Inputs: score wide (NaN = not
+    scored), optional zscores for the exclusion variant; output: weights wide, LONGs +1."""
     long_ok, short_ok = _eligible(score, zscores, excl_threshold)
     sector_of = sectors.to_dict()  # a dict: much faster than a Series for one item at a time
     weights = pd.DataFrame(0.0, index=score.index, columns=score.columns)
@@ -67,7 +71,8 @@ def ls_weights(score: pd.DataFrame, sectors: pd.Series, n_positions: int, max_pe
         scored = scored[sector_size >= min_sector_size]  # tiny sector: z-scores unreliable
         long_set = set(score.columns[long_ok.loc[date]])  # tickers allowed on the LONG side
         short_set = set(score.columns[short_ok.loc[date]])
-        w = _date_weights(scored, sector_of, n_positions, max_per_sector, long_set, short_set)
+        w = _date_weights(scored, sector_of, n_long, n_short, max_sector_share, long_set,
+                          short_set)
         weights.loc[date, w.index] = w.to_numpy()
     return weights
 

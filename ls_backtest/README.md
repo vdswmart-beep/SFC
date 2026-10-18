@@ -2,8 +2,8 @@
 
 ## 1. Purpose
 Monthly backtest of an **equitized** strategy: full benchmark exposure (index futures) plus a
-self-financing long/short pocket, beta-neutral and spread over the sectors, built on four
-signals (value, momentum, quality, low volatility). This is the V1 of the master's thesis *From
+long/short pocket, market-neutral and spread over the sectors, built on four signals (value,
+momentum, quality, low volatility). This is the V1 of the master's thesis *From
 Smart Beta to Active Management*: the simplest correct model, on which hypotheses H1 to H4 are
 tested.
 Phase 1 uses the EURO STOXX 50 with free Yahoo Finance data; phase 2 the STOXX Europe 600 with
@@ -72,8 +72,8 @@ gives every step. In short:
 2. Put the refreshed copy in `data/bloomberg/` (ignored by git: the data are licensed).
 3. `python bloomberg_to_csv.py data/bloomberg/SXXP_extraction.xlsx` writes the CSV files next
    to it and prints the checks (months loaded, stocks without prices, stocks without sector).
-4. In `config.py`: `MIN_SECTOR_SIZE = 5`, `MIN_STOCKS_DATE = 50`, `N_POSITIONS = 60`,
-   `MAX_PER_SECTOR = 6`, `SHOW_HOLDOUT = False`.
+4. In `config.py`: `MIN_SECTOR_SIZE = 5`, `MIN_STOCKS_DATE = 50`, `N_LONG = 45`, `N_SHORT = 15`,
+   `SHOW_HOLDOUT = False`.
 5. `python main.py data/bloomberg`, or choose `data/bloomberg` in the web app.
 
 The universe is every stock that was in the index at any month-end from 2005 to 2025, delisted
@@ -147,19 +147,22 @@ to its functions as arguments.
 5. **LONGs and SHORTs** (`ls_weights`), every month-end:
    - the month is invested only with at least `MIN_STOCKS_DATE` scored stocks; the stocks of a
      sector with fewer than `MIN_SECTOR_SIZE` scored stocks are left out (unreliable z-scores);
-   - all stocks are ranked by score, all sectors together: the `N_POSITIONS / 2` best go LONG
-     and the `N_POSITIONS / 2` worst go SHORT (10 + 10 for 20 positions), with at most
-     `MAX_PER_SECTOR` stocks of one sector on each side, so that the book spreads over the
-     sectors;
+   - all stocks are ranked by score, all sectors together: the `N_LONG` best go LONG (15) and
+     the `N_SHORT` worst go SHORT (5). Fewer SHORTs: a short costs more (borrow fee, the risk
+     of a squeeze), so only the clearest cases are sold;
+   - one sector holds at most `MAX_SECTOR_SHARE` (20 %) of the LONGs and of the SHORTs, so that
+     the book spreads over the sectors (3 LONGs and 1 SHORT at most per sector);
    - a LONG must score above its sector's average and a SHORT below: never the same stock;
-   - equal weights: each LONG weighs +100 % / 10, each SHORT -100 % / 10. A sector can be net
-     long or net short, by at most `MAX_PER_SECTOR` positions (20 % of the pocket);
+   - every line weighs the same, 100 % / 15: the LONGs make +100 %, the SHORTs -33 %. The gap,
+     a net long exposure of 67 %, is offset by selling index futures (step 9), so the pocket
+     stays market-neutral;
    - exclusion variant (H1): no LONG with any factor z below -1 (`EXCL_THRESHOLD`), no SHORT
      with any factor z above +1.
 
    The first version paired a LONG and a SHORT inside each sector, even when the gap between
    them was small; ranking all the stocks together keeps the strongest scores, and the cap per
-   sector keeps the diversification.
+   sector keeps the diversification. `N_SHORT = N_LONG` gives a balanced book, `N_SHORT = 0`
+   the best stocks against the index.
 6. **The switch** (`LONG_ONLY`, `skip_short_leg`): `False` (default) keeps the long/short
    pocket on top of the index. `True` skips the SHORT leg of every L/S strategy: the same LONGs,
    which already total 100 %, are held alone, fully invested, without futures or borrow fees; the
@@ -174,11 +177,12 @@ to its functions as arguments.
 8. **Smart beta reference** (long-only in both modes): the best 20 % of scored stocks
    (`SMART_BETA_TOP`), equally weighted, never hedged: what a multi-factor smart beta ETF would
    hold.
-9. **Backtest**: pocket = sum of weights x returns - costs - hedge, where costs = turnover x 10 bps
-   (`TC_BPS`) + |SHORTs| x 50 bps / 12 (`BORROW_BPS_YR`). Total portfolio = benchmark return +
-   pocket. For a long-only portfolio, the pocket is its return minus the benchmark's, so the
-   total is simply the portfolio's return. All strategies start on the same month (the latest
-   start among them).
+9. **Backtest**: pocket = sum of weights x returns - net weight x benchmark return - costs -
+   hedge, where the net weight (LONGs + SHORTs) is offset by selling the index, and costs =
+   turnover x 10 bps (`TC_BPS`) + |SHORTs| x 50 bps / 12 (`BORROW_BPS_YR`). Total portfolio =
+   benchmark return + pocket. For a long-only portfolio (net weight 1), the pocket is its return
+   minus the benchmark's, so the total is simply the portfolio's return. All strategies start on
+   the same month (the latest start among them).
 
 The strategies compared: the four single-factor pocket strategies (`Single value`, ...),
 `Composite`, `Composite + exclusion` (the main strategy) and `Smart beta (long-only)`.
@@ -210,13 +214,13 @@ app). The app runs on your machine only: nothing is sent anywhere.
 ## 8. Evaluation: what each output shows
 | Table / chart | Content | Hypothesis |
 |---|---|---|
-| Summary | active return, tracking error, IR (for a long/short pocket, which is self-financing, also its Sharpe ratio), t-stat, max drawdown of the active return, active beta, turnover, Sharpe of the total portfolio and of the benchmark; full sample, before the hold-out, hold-out | H1 |
+| Summary | active return, tracking error, IR (for a market-neutral pocket, also its Sharpe ratio), t-stat, max drawdown of the active return, active beta, turnover, Sharpe of the total portfolio and of the benchmark; full sample, before the hold-out, hold-out | H1 |
 | Sharpe test | Jobson-Korkie test with Memmel's correction: total portfolio Sharpe above the benchmark's? one-sided p-value | definition of a persistent Sharpe |
 | Alpha | Fama-French 5 factors + momentum, Newey-West t-stat (needs `factors.csv`) | H1 |
 | Regimes | IR in each regime: Bull/Bear (12-month benchmark return) x high/low vol (12-month vol against its past median), known one month ahead | H4 |
 | Stress tests | cumulative return of the benchmark and active return of each strategy: GFC 2008-09, euro crisis 2011-12, Covid 2020, inflation 2022 | H3, H4 |
 | Costs | IR of the main strategy for transaction costs 0/10/20 bps x borrow fees 0/50/100 bps a year | H3 |
-| Positions | the current lines of the main strategy (20, or 10 in long-only mode): side, weight, sector, score, z-scores | applying the strategy |
+| Positions | the current lines of the main strategy (15 LONGs and 5 SHORTs, or the 15 LONGs in long-only mode): side, weight, sector, score, z-scores | applying the strategy |
 | Monthly returns | active return of every strategy, every month | further analysis |
 | cumulative.png, drawdown.png | main strategy vs smart beta vs benchmark, total portfolios | thesis figures |
 
@@ -237,9 +241,11 @@ month's return must give an IR above 10, a signal built on past returns an |IR| 
 ## 10. Known simplifications
 - The hedge uses the pocket's realized beta: it lags when the portfolio changes, the first 12
   months are not hedged, and futures costs and basis are ignored.
-- 20 lines on the EURO STOXX 50: results still driven by few stocks (`N_POSITIONS` raises it).
-- Sector bets: a sector can be net long or short by up to 20 % of the pocket, while the scores,
-  built inside each sector, do not forecast sectors (`MAX_PER_SECTOR` limits these bets).
+- 20 lines on the EURO STOXX 50: results still driven by few stocks (`N_LONG`, `N_SHORT`).
+- Sector bets: a sector can be net long or short, while the scores, built inside each sector,
+  do not forecast sectors (`MAX_SECTOR_SHARE` limits these bets).
+- Fewer SHORTs than LONGs: with Yahoo's data, which favor every LONG (price index without
+  dividends, today's members only), cutting the SHORTs looks better than it is.
 - A missing return counts as 0 (no delisting return); turnover ignores the drift of weights
   between rebalancings; the borrow fee is the same for every stock.
 - Current GICS sectors applied to the whole history (Communication Services was created in 2018).
@@ -247,8 +253,8 @@ month's return must give an IR above 10, a signal built on past returns an |IR| 
   alternative.
 
 ## 11. How to extend
-- **More positions**: `N_POSITIONS` in `config.py` (even number: 20 = 10 LONG + 10 SHORT), and
-  `MAX_PER_SECTOR` for the number of stocks of one sector on each side.
+- **More or fewer positions**: `N_LONG` and `N_SHORT` in `config.py`, and `MAX_SECTOR_SHARE`
+  for the share of a side one sector may hold.
 - **A signal**: 1 line in `compute_signals` + 1 name in `SIGNALS`; it automatically gets a
   single-factor strategy and enters the composite (give it words in `WORDS`, `src/explain.py`,
   for the web app).

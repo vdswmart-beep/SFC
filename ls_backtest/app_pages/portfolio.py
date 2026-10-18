@@ -42,9 +42,10 @@ def full_ranking(run: dict, name: str, date: pd.Timestamp) -> None:
     if sector != "All sectors":
         table = table[table["Sector"] == sector]
     show(styled(table).apply(_highlight, axis=1), height=600)
-    st.caption(f"{len(table)} stocks. LONG: the best scores, SHORT: the worst, at most "
-               f"{config.MAX_PER_SECTOR} per sector and side (Rank in sector shows who the "
-               f"limit kept out), only in sectors with {config.MIN_SECTOR_SIZE}+ scored stocks.")
+    st.caption(f"{len(table)} stocks. LONG: the {config.N_LONG} best scores, SHORT: the "
+               f"{config.N_SHORT} worst; one sector holds at most {config.MAX_SECTOR_SHARE:.0%} "
+               "of each side (Rank in sector shows who that limit kept out), and only sectors "
+               f"with {config.MIN_SECTOR_SIZE}+ scored stocks count.")
 
 
 def sector_exposure(run: dict, name: str, date: pd.Timestamp) -> None:
@@ -52,8 +53,9 @@ def sector_exposure(run: dict, name: str, date: pd.Timestamp) -> None:
     weights = run["strategies"][name]
     exposure = explain.sector_exposure(weights.loc[date], run["sectors"])
     st.altair_chart(sector_bars(exposure))
-    st.caption("Share of the LONGs (+100 % in total) and of the SHORTs (−100 %) in each sector; "
-               "the black tick is the net exposure, LONG + SHORT.")
+    st.caption("Weight of each sector among the LONGs (+100 % in total) and the SHORTs; the "
+               "black tick is the net, LONG + SHORT. The pocket's net long weight is offset by "
+               "selling index futures.")
     months = st.slider("Months shown, up to the chosen month-end", 6, 120, 36, step=6,
                        key="sector_months")
     cells = explain.holdings(weights, run["sectors"], date, months)

@@ -16,18 +16,18 @@ def run() -> dict:
     raw = compute_signals(data["tr"], data["btp"], data["roe"], fund_lag=3)
     z = {k: sector_zscore(v, data["member"], data["sectors"]) for k, v in raw.items()}
     score = composite(z, 3)
-    weights = ls_weights(score, data["sectors"], n_positions=12, max_per_sector=2,
+    weights = ls_weights(score, data["sectors"], n_long=8, n_short=4, max_sector_share=0.25,
                          min_sector_size=3, min_stocks_date=20)
     return {"z": z, "score": score, "weights": weights, "sectors": data["sectors"]}
 
 
 def test_sector_exposure(run: dict) -> None:
-    """LONGs add up to +100 % and SHORTs to -100 % over the sectors; net = LONG + SHORT; no
-    sector holds more than 2 of the 6 LONGs."""
+    """LONGs add up to +100 % and SHORTs to -50 % over the sectors; net = LONG + SHORT; no
+    sector holds more than 2 of the 8 LONGs."""
     exposure = explain.sector_exposure(run["weights"].iloc[-1], run["sectors"])
-    assert np.isclose(exposure["LONG"].sum(), 1.0) and np.isclose(exposure["SHORT"].sum(), -1.0)
+    assert np.isclose(exposure["LONG"].sum(), 1.0) and np.isclose(exposure["SHORT"].sum(), -0.5)
     assert np.allclose(exposure["Net"], exposure["LONG"] + exposure["SHORT"])
-    assert exposure["LONG"].max() <= 2 / 6 + 1e-9
+    assert exposure["LONG"].max() <= 2 / 8 + 1e-9
 
 
 def test_why() -> None:
@@ -39,12 +39,12 @@ def test_why() -> None:
 
 
 def test_ranking_at(run: dict) -> None:
-    """Every scored stock once, best first, and exactly the 12 held stocks marked."""
+    """Every scored stock once, best first, and exactly the 8 LONGs and 4 SHORTs marked."""
     date = run["score"].index[-1]
     table = explain.ranking_at(date, run["score"], run["z"], run["sectors"], run["weights"])
     assert len(table) == run["score"].loc[date].notna().sum()
     assert table["Score"].is_monotonic_decreasing
-    assert (table["Side"] == "LONG").sum() == (table["Side"] == "SHORT").sum() == 6
+    assert (table["Side"] == "LONG").sum() == 8 and (table["Side"] == "SHORT").sum() == 4
 
 
 def test_holdings_and_moves(run: dict) -> None:

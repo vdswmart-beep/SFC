@@ -4,7 +4,6 @@ import streamlit as st
 import config
 from app_pages.common import current_run
 
-HALF = config.N_POSITIONS // 2  # LONGs, and SHORTs
 PIPELINE = """digraph {
   rankdir=LR; bgcolor="transparent"; nodesep=0.25;
   node [shape=box, style="rounded,filled", fillcolor="#eaf2fc", color="#2a78d6",
@@ -37,14 +36,16 @@ z = (value − sector mean) / sector standard deviation, capped at ±3. A bank i
 banks only. The **composite score** is the average of a stock's z-scores (each signal weighs
 the same), if it has at least {config.MIN_SIGNALS} of the {len(config.SIGNALS)}."""),
     ("LONG / SHORT", "src/portfolio.py → ls_weights", f"""
-All scored stocks are ranked by score: the **{HALF} best go LONG, the {HALF} worst go SHORT**,
-with at most {config.MAX_PER_SECTOR} stocks of one sector on each side, so that the book spreads
-over the sectors. A LONG must score above its sector's average, a SHORT below; sectors with fewer
-than {config.MIN_SECTOR_SIZE} scored stocks are left out. Equal weights: each LONG weighs
-+100 % / {HALF}, each SHORT −100 % / {HALF}. Variant `Composite + exclusion` (H1, the main
-strategy): no LONG with a z-score below {config.EXCL_THRESHOLD:+.0f} on any signal, no SHORT with
-one above {-config.EXCL_THRESHOLD:+.0f}. A month with fewer than {config.MIN_STOCKS_DATE} scored
-stocks is not invested."""),
+All scored stocks are ranked by score: the **{config.N_LONG} best go LONG, the {config.N_SHORT}
+worst go SHORT**. Fewer SHORTs: a short costs more (borrow fee), so only the clearest cases are
+sold. One sector holds at most {config.MAX_SECTOR_SHARE:.0%} of the LONGs and of the SHORTs, so
+that the book spreads over the sectors. A LONG must score above its sector's average, a SHORT
+below; sectors with fewer than {config.MIN_SECTOR_SIZE} scored stocks are left out. Every line
+weighs 100 % / {config.N_LONG}: the LONGs make +100 %, the SHORTs
+−{config.N_SHORT / config.N_LONG:.0%}, and the gap is offset by selling index futures. Variant
+`Composite + exclusion` (H1, the main strategy): no LONG with a z-score below
+{config.EXCL_THRESHOLD:+.0f} on any signal, no SHORT with one above {-config.EXCL_THRESHOLD:+.0f}.
+A month with fewer than {config.MIN_STOCKS_DATE} scored stocks is not invested."""),
     ("The switch", "config.py → LONG_ONLY (or the sidebar toggle); src/portfolio.py → "
      "skip_short_leg", f"""
 - **Long/short** (toggle off): the portfolio holds the index plus the LONG/SHORT pocket. Index

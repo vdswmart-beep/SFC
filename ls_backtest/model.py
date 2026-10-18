@@ -38,9 +38,9 @@ def build_strategies(data: dict) -> tuple[dict, dict, dict, pd.DataFrame]:
     raw = compute_signals(data["tr"], data["btp"], data["roe"], config.FUND_LAG)
     z = {k: sector_zscore(raw[k], data["member"], data["sectors"]) for k in config.SIGNALS}
     score = composite(z, config.MIN_SIGNALS)
-    params = dict(sectors=data["sectors"], n_positions=config.N_POSITIONS,
-                  max_per_sector=config.MAX_PER_SECTOR, min_sector_size=config.MIN_SECTOR_SIZE,
-                  min_stocks_date=config.MIN_STOCKS_DATE)
+    params = dict(sectors=data["sectors"], n_long=config.N_LONG, n_short=config.N_SHORT,
+                  max_sector_share=config.MAX_SECTOR_SHARE,
+                  min_sector_size=config.MIN_SECTOR_SIZE, min_stocks_date=config.MIN_STOCKS_DATE)
     strategies = {f"Single {k}": ls_weights(z[k], **params) for k in config.SIGNALS}
     strategies["Composite"] = ls_weights(score, **params)
     strategies["Composite + exclusion"] = ls_weights(score, **params, zscores=z,

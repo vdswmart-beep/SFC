@@ -9,7 +9,7 @@ from src.metrics import perf_stats, sharpe_test
 from src.portfolio import long_only_weights, ls_weights, skip_short_leg
 from src.signals import composite, compute_signals, sector_zscore
 
-PARAMS = dict(n_positions=12, max_per_sector=2, min_sector_size=3, min_stocks_date=20)
+PARAMS = dict(n_long=8, n_short=4, max_sector_share=0.25, min_sector_size=3, min_stocks_date=20)
 
 
 @pytest.fixture(scope="module")
@@ -41,26 +41,26 @@ def _stats(z: pd.DataFrame, data: dict, beta_window: int | None = None) -> pd.Se
 
 
 def test_weights_sum(weights: pd.DataFrame) -> None:
-    """LONGs = +100 %, SHORTs = -100 %: the pocket finances itself."""
+    """Every line weighs the same: LONGs = +100 %, the 4 SHORTs = -100 % x 4 / 8."""
     w = weights.iloc[-1]
     assert np.isclose(w[w > 0].sum(), 1.0)
-    assert np.isclose(w[w < 0].sum(), -1.0)
+    assert np.isclose(w[w < 0].sum(), -0.5)
 
 
 def test_sectors(weights: pd.DataFrame, zscores: dict, data: dict) -> None:
-    """At most max_per_sector stocks of one sector on each side; LONGs above their sector's
-    average, SHORTs below."""
+    """One sector holds at most 25 % of each side (2 of the 8 LONGs, 1 of the 4 SHORTs); LONGs
+    above their sector's average, SHORTs below."""
     w, score = weights.iloc[-1], composite(zscores, 3).iloc[-1]
     sector = data["sectors"]
-    assert (w > 0).groupby(sector).sum().max() <= PARAMS["max_per_sector"]
-    assert (w < 0).groupby(sector).sum().max() <= PARAMS["max_per_sector"]
+    assert (w > 0).groupby(sector).sum().max() <= 2
+    assert (w < 0).groupby(sector).sum().max() <= 1
     assert (score[w > 0] > 0).all() and (score[w < 0] < 0).all()
 
 
 def test_position_count(weights: pd.DataFrame) -> None:
-    """Exactly n_positions stocks held, half LONG, half SHORT."""
+    """Exactly n_long LONGs and n_short SHORTs."""
     w = weights.iloc[-1]
-    assert (w > 0).sum() == (w < 0).sum() == PARAMS["n_positions"] // 2
+    assert (w > 0).sum() == PARAMS["n_long"] and (w < 0).sum() == PARAMS["n_short"]
 
 
 def test_no_non_members(weights: pd.DataFrame, data: dict) -> None:
